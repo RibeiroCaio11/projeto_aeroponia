@@ -5,7 +5,8 @@ import 'package:http/http.dart' as http;
 import '../widgets/sensor_card.dart';
 import 'plants_screen.dart';
 
-const _backendUrl = 'http://localhost:8000/dados';
+// BACKEND NO AZURE
+const _backendUrl = 'https://aerotowersystem-eqatd2e6d8fghhbj.eastus-01.azurewebsites.net/dados';
 const _intervalo = Duration(seconds: 3);
 
 class DashboardScreen extends StatefulWidget {
@@ -37,20 +38,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final response = await http
           .get(Uri.parse(_backendUrl))
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
+        if (response.body.isEmpty || response.body == 'null') {
+          _setErro('Backend online, mas ainda sem dados do simulador.');
+          return;
+        }
+
         final payload = jsonDecode(response.body) as Map<String, dynamic>?;
-        if (payload == null || payload['dados'] == null) return;
+
+        if (payload == null || payload['dados'] == null) {
+          _setErro('Backend online, mas ainda sem dados do simulador.');
+          return;
+        }
 
         final dados = payload['dados'] as Map<String, dynamic>;
-        final alertas = (payload['alertas'] as List).cast<String>();
+
+        final alertasRaw = payload['alertas'];
+        final alertas = alertasRaw is List
+            ? alertasRaw.map((e) => e.toString()).toList()
+            : <String>[];
 
         if (!mounted) return;
+
         setState(() {
           _ph = (dados['ph'] as num).toStringAsFixed(1);
           _ec = '${(dados['ec'] as num).toStringAsFixed(1)} mS/cm';
-          _tempAgua = '${(dados['temperaturaAgua'] as num).toStringAsFixed(1)}°C';
+          _tempAgua =
+              '${(dados['temperaturaAgua'] as num).toStringAsFixed(1)}°C';
           _nivelAgua = '${(dados['nivelAgua'] as num).toStringAsFixed(0)}%';
           _alertas = alertas;
           _conectado = true;
@@ -59,13 +75,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         _setErro('Backend retornou erro ${response.statusCode}.');
       }
-    } catch (_) {
-      _setErro('Sem resposta do backend. Ele está rodando?');
+    } catch (e) {
+      _setErro('Sem resposta do backend Azure.');
     }
   }
 
   void _setErro(String mensagem) {
     if (!mounted) return;
+
     setState(() {
       _erroConexao = mensagem;
       _conectado = false;
@@ -150,7 +167,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
           SizedBox(width: 10),
-          Text("Buscando dados do backend..."),
+          Expanded(
+            child: Text("Buscando dados do backend..."),
+          ),
         ],
       ),
     );
