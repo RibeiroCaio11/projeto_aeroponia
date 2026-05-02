@@ -136,9 +136,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       min: 0,
                       max: 5,
                       ranges: [
-                        GaugeRange(startValue: 0, endValue: 1.0, color: Colors.yellow),
-                        GaugeRange(startValue: 1.0, endValue: 2.5, color: Colors.green),
-                        GaugeRange(startValue: 2.5, endValue: 5.0, color: Colors.red),
+                        GaugeRange(startValue: 0, endValue: 1.0, color: Colors.red),
+                        GaugeRange(startValue: 1.0, endValue: 1.8, color: Colors.green),
+                        GaugeRange(startValue: 1.8, endValue: 5.0, color: Colors.red),
                       ],
                     ),
                     GaugeCard(
@@ -148,9 +148,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       min: 10,
                       max: 35,
                       ranges: [
-                        GaugeRange(startValue: 10, endValue: 18, color: Colors.red),
-                        GaugeRange(startValue: 18, endValue: 25, color: Colors.green),
-                        GaugeRange(startValue: 25, endValue: 35, color: Colors.red),
+                        GaugeRange(startValue: 10, endValue: 20, color: Colors.red),
+                        GaugeRange(startValue: 20, endValue: 28, color: Colors.green),
+                        GaugeRange(startValue: 28, endValue: 35, color: Colors.red),
                       ],
                     ),
                     GaugeCard(
@@ -160,8 +160,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       min: 0,
                       max: 100,
                       ranges: [
-                        GaugeRange(startValue: 0, endValue: 20, color: Colors.red),
-                        GaugeRange(startValue: 20, endValue: 50, color: Colors.yellow),
+                        GaugeRange(startValue: 0, endValue: 35, color: Colors.red),
+                        GaugeRange(startValue: 35, endValue: 50, color: Colors.yellow),
                         GaugeRange(startValue: 50, endValue: 100, color: Colors.green),
                       ],
                     ),
