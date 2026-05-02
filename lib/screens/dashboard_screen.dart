@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import '../widgets/sensor_card.dart';
+import 'package:syncfusion_flutter_gauges/gauges.dart'; // Adicionado para os GaugeRanges
+import '../widgets/gauge_card.dart'; // Atualizado para o novo widget
 import 'plants_screen.dart';
 
-// BACKEND NO AZURE
-const _backendUrl = 'https://aerotowersystem-eqatd2e6d8fghhbj.eastus-01.azurewebsites.net/dados';
+const _backendUrl = 'http://localhost:8000/dados';
 const _intervalo = Duration(seconds: 3);
 
 class DashboardScreen extends StatefulWidget {
@@ -19,10 +19,12 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _timer;
 
-  String _ph = '--';
-  String _ec = '--';
-  String _tempAgua = '--';
-  String _nivelAgua = '--';
+  // Variáveis atualizadas para double? para alimentar os Gauges
+  double? _ph;
+  double? _ec;
+  double? _tempAgua;
+  double? _nivelAgua;
+  
   List<String> _alertas = [];
   bool _conectado = false;
   String? _erroConexao;
@@ -38,36 +40,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final response = await http
           .get(Uri.parse(_backendUrl))
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        if (response.body.isEmpty || response.body == 'null') {
-          _setErro('Backend online, mas ainda sem dados do simulador.');
-          return;
-        }
-
         final payload = jsonDecode(response.body) as Map<String, dynamic>?;
-
-        if (payload == null || payload['dados'] == null) {
-          _setErro('Backend online, mas ainda sem dados do simulador.');
-          return;
-        }
+        if (payload == null || payload['dados'] == null) return;
 
         final dados = payload['dados'] as Map<String, dynamic>;
-
-        final alertasRaw = payload['alertas'];
-        final alertas = alertasRaw is List
-            ? alertasRaw.map((e) => e.toString()).toList()
-            : <String>[];
+        final alertas = (payload['alertas'] as List).cast<String>();
 
         if (!mounted) return;
-
         setState(() {
-          _ph = (dados['ph'] as num).toStringAsFixed(1);
-          _ec = '${(dados['ec'] as num).toStringAsFixed(1)} mS/cm';
-          _tempAgua =
-              '${(dados['temperaturaAgua'] as num).toStringAsFixed(1)}°C';
-          _nivelAgua = '${(dados['nivelAgua'] as num).toStringAsFixed(0)}%';
+          // Extraindo os números puros para os Gauges
+          _ph = (dados['ph'] as num).toDouble();
+          _ec = (dados['ec'] as num).toDouble();
+          _tempAgua = (dados['temperaturaAgua'] as num).toDouble();
+          _nivelAgua = (dados['nivelAgua'] as num).toDouble();
+          
           _alertas = alertas;
           _conectado = true;
           _erroConexao = null;
@@ -75,14 +64,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         _setErro('Backend retornou erro ${response.statusCode}.');
       }
-    } catch (e) {
-      _setErro('Sem resposta do backend Azure.');
+    } catch (_) {
+      _setErro('Sem resposta do backend. Ele está rodando?');
     }
   }
 
   void _setErro(String mensagem) {
     if (!mounted) return;
-
     setState(() {
       _erroConexao = mensagem;
       _conectado = false;
@@ -129,13 +117,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   mainAxisSpacing: 12,
                   childAspectRatio: 1.8,
                   children: [
-                    SensorCard(title: "pH", value: _ph),
-                    SensorCard(title: "EC", value: _ec),
-                    SensorCard(title: "Temp. Água", value: _tempAgua),
-                    SensorCard(title: "Nível Água", value: _nivelAgua),
+                    GaugeCard(
+                      title: "pH",
+                      value: _ph,
+                      unit: "",
+                      min: 0,
+                      max: 14,
+                      ranges: [
+                        GaugeRange(startValue: 0, endValue: 5.5, color: Colors.red),
+                        GaugeRange(startValue: 5.5, endValue: 6.5, color: Colors.green),
+                        GaugeRange(startValue: 6.5, endValue: 14, color: Colors.red),
+                      ],
+                    ),
+                    GaugeCard(
+                      title: "EC",
+                      value: _ec,
+                      unit: "mS/cm",
+                      min: 0,
+                      max: 5,
+                      ranges: [
+                        GaugeRange(startValue: 0, endValue: 1.0, color: Colors.yellow),
+                        GaugeRange(startValue: 1.0, endValue: 2.5, color: Colors.green),
+                        GaugeRange(startValue: 2.5, endValue: 5.0, color: Colors.red),
+                      ],
+                    ),
+                    GaugeCard(
+                      title: "Temp. Água",
+                      value: _tempAgua,
+                      unit: "°C",
+                      min: 10,
+                      max: 35,
+                      ranges: [
+                        GaugeRange(startValue: 10, endValue: 18, color: Colors.red),
+                        GaugeRange(startValue: 18, endValue: 25, color: Colors.green),
+                        GaugeRange(startValue: 25, endValue: 35, color: Colors.red),
+                      ],
+                    ),
+                    GaugeCard(
+                      title: "Nível Água",
+                      value: _nivelAgua,
+                      unit: "%",
+                      min: 0,
+                      max: 100,
+                      ranges: [
+                        GaugeRange(startValue: 0, endValue: 20, color: Colors.red),
+                        GaugeRange(startValue: 20, endValue: 50, color: Colors.yellow),
+                        GaugeRange(startValue: 50, endValue: 100, color: Colors.green),
+                      ],
+                    ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 50),
                 if (_erroConexao != null)
                   _statusErro()
                 else if (!_conectado)
@@ -167,9 +199,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
           SizedBox(width: 10),
-          Expanded(
-            child: Text("Buscando dados do backend..."),
-          ),
+          Text("Buscando dados do backend..."),
         ],
       ),
     );
