@@ -6,7 +6,7 @@ import 'package:syncfusion_flutter_gauges/gauges.dart'; // Adicionado para os Ga
 import '../widgets/gauge_card.dart'; // Atualizado para o novo widget
 import 'plants_screen.dart';
 
-const _backendUrl = 'http://localhost:8000/dados';
+const _backendUrl = 'https://aerotowersystem-eqatd2e6d8fghhbj.eastus-01.azurewebsites.net/dados';
 const _intervalo = Duration(seconds: 3);
 
 class DashboardScreen extends StatefulWidget {
