@@ -1,18 +1,15 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:syncfusion_flutter_gauges/gauges.dart';
+import '../models/backend_models.dart';
+import '../services/backend_service.dart';
 import '../widgets/gauge_card.dart';
 import 'plants_screen.dart';
 
-const _backendUrl =
-    'https://aerotowersystem-eqatd2e6d8fghhbj.eastus-01.azurewebsites.net/dados';
 const _intervalo = Duration(seconds: 3);
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 class _Colors {
-  static const bg = Color(0xFF0D1117);
+  static const bg = Color(0xFF0A0F14);
   static const surface = Color(0xFF161B22);
   static const surfaceElevated = Color(0xFF1C2129);
   static const border = Color(0xFF30363D);
@@ -26,6 +23,8 @@ class _Colors {
   static const orangeDim = Color(0xFF3D2400);
   static const blue = Color(0xFF58A6FF);
   static const blueDim = Color(0xFF0D2040);
+  static const cyan = Color(0xFF2DD4BF);
+  static const violet = Color(0xFFA78BFA);
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -39,6 +38,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
+  final _backend = BackendService();
   Timer? _timer;
   late AnimationController _pulseController;
 
@@ -48,8 +48,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   double? _nivelAgua;
 
   List<String> _alertas = [];
+  MotorStatus? _motorStatus;
   bool _conectado = false;
+  bool _enviandoComandoMotor = false;
   String? _erroConexao;
+  String? _erroMotor;
   DateTime? _ultimaAtualizacao;
 
   @override
@@ -66,33 +69,87 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _buscarDados() async {
     try {
-      final response = await http
-          .get(Uri.parse(_backendUrl))
-          .timeout(const Duration(seconds: 5));
+      final snapshot = await _backend.getDados();
 
-      if (response.statusCode == 200) {
-        final payload = jsonDecode(response.body) as Map<String, dynamic>?;
-        if (payload == null || payload['dados'] == null) return;
+      if (!mounted) return;
+      setState(() {
+        _ph = snapshot.ph;
+        _ec = snapshot.ec;
+        _tempAgua = snapshot.temperaturaAgua;
+        _nivelAgua = snapshot.nivelAgua;
+        _alertas = snapshot.alertas;
+        _conectado = true;
+        _erroConexao = null;
+        _ultimaAtualizacao = snapshot.recebidoEm ?? DateTime.now();
+      });
 
-        final dados = payload['dados'] as Map<String, dynamic>;
-        final alertas = (payload['alertas'] as List).cast<String>();
-
-        if (!mounted) return;
-        setState(() {
-          _ph = (dados['ph'] as num).toDouble();
-          _ec = (dados['ec'] as num).toDouble();
-          _tempAgua = (dados['temperaturaAgua'] as num).toDouble();
-          _nivelAgua = (dados['nivelAgua'] as num).toDouble();
-          _alertas = alertas;
-          _conectado = true;
-          _erroConexao = null;
-          _ultimaAtualizacao = DateTime.now();
-        });
-      } else {
-        _setErro('Backend retornou erro ${response.statusCode}.');
-      }
+      await _buscarStatusMotor();
+    } on BackendException catch (e) {
+      _setErro(e.message);
     } catch (_) {
       _setErro('Sem resposta do backend. Ele está rodando?');
+    }
+  }
+
+  Future<void> _buscarStatusMotor() async {
+    try {
+      final status = await _backend.getMotorStatus();
+      if (!mounted) return;
+      setState(() {
+        _motorStatus = status;
+        _erroMotor = null;
+      });
+    } on BackendException catch (e) {
+      if (!mounted) return;
+      setState(() => _erroMotor = e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _erroMotor = 'Status do motor indisponivel.');
+    }
+  }
+
+  Future<void> _iniciarCicloPadrao() async {
+    await _executarComandoMotor(
+      () => _backend.iniciarCiclo(minutosLigado: 15, minutosDesligado: 45),
+      sucesso: 'Ciclo da bomba iniciado.',
+    );
+  }
+
+  Future<void> _desligarMotor() async {
+    await _executarComandoMotor(
+      _backend.desligarMotor,
+      sucesso: 'Comando para desligar enviado.',
+    );
+  }
+
+  Future<void> _executarComandoMotor(
+    Future<void> Function() comando, {
+    required String sucesso,
+  }) async {
+    if (_enviandoComandoMotor) return;
+
+    setState(() {
+      _enviandoComandoMotor = true;
+      _erroMotor = null;
+    });
+
+    try {
+      await comando();
+      await _buscarStatusMotor();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(sucesso), backgroundColor: _Colors.surface),
+      );
+    } on BackendException catch (e) {
+      if (!mounted) return;
+      setState(() => _erroMotor = e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _erroMotor = 'Nao foi possivel enviar o comando.');
+    } finally {
+      if (mounted) {
+        setState(() => _enviandoComandoMotor = false);
+      }
     }
   }
 
@@ -108,6 +165,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void dispose() {
     _timer?.cancel();
     _pulseController.dispose();
+    _backend.close();
     super.dispose();
   }
 
@@ -121,13 +179,16 @@ class _DashboardScreenState extends State<DashboardScreen>
         backgroundColor: _Colors.bg,
         appBar: _buildAppBar(),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Cabeçalho da seção
               _buildSectionHeader(),
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
+
+              _buildSensorSummary(),
+              const SizedBox(height: 18),
 
               // Faixa de alertas críticos
               if (_alertas.isNotEmpty) ...[
@@ -146,6 +207,10 @@ class _DashboardScreenState extends State<DashboardScreen>
 
               const SizedBox(height: 24),
 
+              _buildMotorPanel(),
+
+              const SizedBox(height: 24),
+
               // Barra de status inferior
               _buildStatusBar(),
             ],
@@ -159,11 +224,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      backgroundColor: _Colors.surface,
+      backgroundColor: _Colors.bg,
       elevation: 0,
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
-        child: Container(height: 1, color: _Colors.border),
+        child: Container(height: 1, color: _Colors.border.withOpacity(0.75)),
       ),
       leading: Padding(
         padding: const EdgeInsets.all(12),
@@ -182,9 +247,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             'AeroTower',
             style: TextStyle(
               color: _Colors.textPrimary,
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
             ),
           ),
           Text(
@@ -251,46 +315,128 @@ class _DashboardScreenState extends State<DashboardScreen>
               '${_ultimaAtualizacao!.second.toString().padLeft(2, '0')}'
         : '--:--:--';
 
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Sensores em Tempo Real',
-                style: TextStyle(
-                  color: _Colors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _Colors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _Colors.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Sensores em Tempo Real',
+                  style: TextStyle(
+                    color: _Colors.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Atualizado às $hora · Intervalo: ${_intervalo.inSeconds}s',
-                style: const TextStyle(
-                  color: _Colors.textSecondary,
-                  fontSize: 12,
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    _MetaPill(
+                      icon: Icons.schedule_rounded,
+                      label: 'Atualizado às $hora',
+                    ),
+                    _MetaPill(
+                      icon: Icons.autorenew_rounded,
+                      label: 'Intervalo ${_intervalo.inSeconds}s',
+                    ),
+                  ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        // Badge de status compacto
-        _StatusBadge(
-          label: _erroConexao != null
-              ? 'Offline'
-              : _conectado
-              ? 'Online'
-              : 'Conectando',
-          color: _erroConexao != null
-              ? _Colors.red
-              : _conectado
-              ? _Colors.accent
-              : _Colors.orange,
-        ),
-      ],
+          const SizedBox(width: 12),
+          _StatusBadge(
+            label: _erroConexao != null
+                ? 'Offline'
+                : _conectado
+                ? 'Online'
+                : 'Conectando',
+            color: _erroConexao != null
+                ? _Colors.red
+                : _conectado
+                ? _Colors.accent
+                : _Colors.orange,
+          ),
+        ],
+      ),
     );
+  }
+
+  Widget _buildSensorSummary() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 760;
+        final children = [
+          _SummaryMetric(
+            icon: Icons.water_drop_outlined,
+            label: 'pH',
+            value: _formatMetric(_ph, ''),
+            color: _sensorColor(_ph, 5.5, 6.5),
+          ),
+          _SummaryMetric(
+            icon: Icons.science_outlined,
+            label: 'TDS',
+            value: _formatMetric(_ec, 'ppm'),
+            color: _sensorColor(_ec, 560, 1260),
+          ),
+          _SummaryMetric(
+            icon: Icons.thermostat_rounded,
+            label: 'Temperatura',
+            value: _formatMetric(_tempAgua, '°C'),
+            color: _sensorColor(_tempAgua, 20, 28),
+          ),
+          _SummaryMetric(
+            icon: Icons.opacity_rounded,
+            label: 'Umidade',
+            value: _formatMetric(_nivelAgua, '%'),
+            color: _sensorColor(_nivelAgua, 50, 100),
+          ),
+        ];
+
+        if (isCompact) {
+          return GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 2.5,
+            children: children,
+          );
+        }
+
+        return Row(
+          children: [
+            for (var i = 0; i < children.length; i++) ...[
+              Expanded(child: children[i]),
+              if (i != children.length - 1) const SizedBox(width: 10),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatMetric(double? value, String unit) {
+    if (value == null) return '--';
+    final suffix = unit.isEmpty ? '' : ' $unit';
+    return '${value.toStringAsFixed(1)}$suffix';
+  }
+
+  Color _sensorColor(double? value, double idealMin, double idealMax) {
+    if (value == null) return _Colors.textSecondary;
+    if (value < idealMin || value > idealMax) return _Colors.orange;
+    return _Colors.accent;
   }
 
   // ── Faixa de alertas ───────────────────────────────────────────────────────
@@ -424,46 +570,70 @@ class _DashboardScreenState extends State<DashboardScreen>
               unit: "",
               min: 0,
               max: 14,
+              icon: Icons.water_drop_outlined,
+              accentColor: _Colors.cyan,
               ranges: [
-                GaugeRange(startValue: 0, endValue: 5.5, color: Colors.red),
-                GaugeRange(startValue: 5.5, endValue: 6.5, color: Colors.green),
-                GaugeRange(startValue: 6.5, endValue: 14, color: Colors.red),
+                GaugeRange(startValue: 0, endValue: 5.5, color: _Colors.red),
+                GaugeRange(
+                  startValue: 5.5,
+                  endValue: 6.5,
+                  color: _Colors.accent,
+                ),
+                GaugeRange(startValue: 6.5, endValue: 14, color: _Colors.red),
               ],
             ),
             GaugeCard(
-              title: "EC",
+              title: "TDS",
               value: _ec,
-              unit: "mS/cm",
+              unit: "ppm",
               min: 0,
-              max: 5,
+              max: 2000,
+              icon: Icons.science_outlined,
+              accentColor: _Colors.violet,
               ranges: [
-                GaugeRange(startValue: 0, endValue: 1.0, color: Colors.red),
-                GaugeRange(startValue: 1.0, endValue: 1.8, color: Colors.green),
-                GaugeRange(startValue: 1.8, endValue: 5.0, color: Colors.red),
+                GaugeRange(startValue: 0, endValue: 560, color: _Colors.red),
+                GaugeRange(
+                  startValue: 560,
+                  endValue: 1260,
+                  color: _Colors.accent,
+                ),
+                GaugeRange(
+                  startValue: 1260,
+                  endValue: 2000,
+                  color: _Colors.red,
+                ),
               ],
             ),
             GaugeCard(
-              title: "Temp. Água",
+              title: "Temperatura",
               value: _tempAgua,
               unit: "°C",
               min: 10,
               max: 35,
+              icon: Icons.thermostat_rounded,
+              accentColor: _Colors.orange,
               ranges: [
-                GaugeRange(startValue: 10, endValue: 20, color: Colors.red),
-                GaugeRange(startValue: 20, endValue: 28, color: Colors.green),
-                GaugeRange(startValue: 28, endValue: 35, color: Colors.red),
+                GaugeRange(startValue: 10, endValue: 20, color: _Colors.red),
+                GaugeRange(startValue: 20, endValue: 28, color: _Colors.accent),
+                GaugeRange(startValue: 28, endValue: 35, color: _Colors.red),
               ],
             ),
             GaugeCard(
-              title: "Nível Água",
+              title: "Umidade",
               value: _nivelAgua,
               unit: "%",
               min: 0,
               max: 100,
+              icon: Icons.opacity_rounded,
+              accentColor: _Colors.blue,
               ranges: [
-                GaugeRange(startValue: 0, endValue: 35, color: Colors.red),
-                GaugeRange(startValue: 35, endValue: 50, color: Colors.yellow),
-                GaugeRange(startValue: 50, endValue: 100, color: Colors.green),
+                GaugeRange(startValue: 0, endValue: 35, color: _Colors.red),
+                GaugeRange(startValue: 35, endValue: 50, color: _Colors.orange),
+                GaugeRange(
+                  startValue: 50,
+                  endValue: 100,
+                  color: _Colors.accent,
+                ),
               ],
             ),
           ],
@@ -472,12 +642,108 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Widget _buildMotorPanel() {
+    final status = _motorStatus?.resumo ?? 'Aguardando status do motor';
+    final atualizadoEm = _motorStatus?.recebidoEm;
+    final hora = atualizadoEm != null
+        ? '${atualizadoEm.hour.toString().padLeft(2, '0')}:'
+              '${atualizadoEm.minute.toString().padLeft(2, '0')}:'
+              '${atualizadoEm.second.toString().padLeft(2, '0')}'
+        : '--:--:--';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _Colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _Colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: _Colors.blueDim,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.waterfall_chart,
+                  color: _Colors.blue,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Controle da Bomba',
+                      style: TextStyle(
+                        color: _Colors.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'Status: $status | Atualizado as $hora',
+                      style: const TextStyle(
+                        color: _Colors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Atualizar status',
+                onPressed: _buscarStatusMotor,
+                color: _Colors.textSecondary,
+                icon: const Icon(Icons.refresh, size: 18),
+              ),
+            ],
+          ),
+          if (_erroMotor != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _erroMotor!,
+              style: const TextStyle(color: _Colors.orange, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _MotorButton(
+                icon: Icons.play_arrow_rounded,
+                label: 'Ciclo 15/45',
+                enabled: !_enviandoComandoMotor,
+                onPressed: _iniciarCicloPadrao,
+              ),
+              _MotorButton(
+                icon: Icons.stop_rounded,
+                label: 'Desligar',
+                enabled: !_enviandoComandoMotor,
+                isDanger: true,
+                onPressed: _desligarMotor,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Barra de status inferior ───────────────────────────────────────────────
 
   Widget _buildStatusBar() {
     if (_erroConexao != null) return _statusErro();
     if (!_conectado) return _statusCarregando();
-    if (_alertas.isNotEmpty) return _statusAlertas();
     return _statusOk();
   }
 
@@ -541,46 +807,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _statusAlertas() {
-    return _StatusContainer(
-      color: _Colors.orangeDim,
-      borderColor: _Colors.orange.withOpacity(0.3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                color: _Colors.orange,
-                size: 18,
-              ),
-              SizedBox(width: 12),
-              Text(
-                'Parâmetros fora do ideal',
-                style: TextStyle(
-                  color: _Colors.orange,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ..._alertas.map(
-            (alerta) => Padding(
-              padding: const EdgeInsets.only(top: 3),
-              child: Text(
-                '· $alerta',
-                style: const TextStyle(color: Color(0xFFFFCC80), fontSize: 12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ── Theme ──────────────────────────────────────────────────────────────────
 
   ThemeData _buildDarkTheme() {
@@ -632,6 +858,106 @@ class _StatusContainer extends StatelessWidget {
   }
 }
 
+class _MetaPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _MetaPill({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: _Colors.surfaceElevated,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _Colors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: _Colors.textSecondary, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(color: _Colors.textSecondary, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryMetric extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _SummaryMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _Colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.24)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _Colors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatusBadge extends StatelessWidget {
   final String label;
   final Color color;
@@ -667,6 +993,43 @@ class _StatusBadge extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MotorButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool enabled;
+  final bool isDanger;
+  final VoidCallback onPressed;
+
+  const _MotorButton({
+    required this.icon,
+    required this.label,
+    required this.enabled,
+    required this.onPressed,
+    this.isDanger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDanger ? _Colors.red : _Colors.accent;
+
+    return TextButton.icon(
+      onPressed: enabled ? onPressed : null,
+      style: TextButton.styleFrom(
+        foregroundColor: color,
+        disabledForegroundColor: _Colors.textSecondary,
+        backgroundColor: color.withOpacity(enabled ? 0.12 : 0.04),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: color.withOpacity(enabled ? 0.35 : 0.1)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      icon: Icon(icon, size: 17),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
     );
   }
 }

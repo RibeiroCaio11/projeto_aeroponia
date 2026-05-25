@@ -20,6 +20,8 @@ class _Plant {
   final String status;
   final String imageUrl;
   final String detail;
+  final String type;
+  final double progress;
   final Color statusColor;
 
   const _Plant({
@@ -27,6 +29,8 @@ class _Plant {
     required this.status,
     required this.imageUrl,
     required this.detail,
+    required this.type,
+    required this.progress,
     required this.statusColor,
   });
 }
@@ -38,6 +42,8 @@ const _plants = [
     imageUrl:
         'https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1?w=400&q=80',
     detail: 'Colheita em 5 dias',
+    type: 'Folhosa',
+    progress: 0.84,
     statusColor: _C.accent,
   ),
   _Plant(
@@ -46,6 +52,8 @@ const _plants = [
     imageUrl:
         'https://images.unsplash.com/photo-1592841200221-a6898f307baa?w=400&q=80',
     detail: 'Colheita em 18 dias',
+    type: 'Frutífera',
+    progress: 0.52,
     statusColor: _C.yellow,
   ),
   _Plant(
@@ -54,6 +62,8 @@ const _plants = [
     imageUrl:
         'https://images.unsplash.com/photo-1600689781748-d774f0d1fd85?w=400&q=80',
     detail: 'Colheita em 3 dias',
+    type: 'Folhosa',
+    progress: 0.92,
     statusColor: _C.accent,
   ),
   _Plant(
@@ -62,6 +72,8 @@ const _plants = [
     imageUrl:
         'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=400&q=80',
     detail: 'Verificar EC',
+    type: 'Folhosa',
+    progress: 0.38,
     statusColor: _C.red,
   ),
 ];
@@ -85,6 +97,8 @@ class PlantsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildGardenHeader(),
+                  const SizedBox(height: 16),
                   _buildSummaryRow(),
                   const SizedBox(height: 24),
                   Row(
@@ -109,7 +123,7 @@ class PlantsScreen extends StatelessWidget {
                       crossAxisCount: cols,
                       crossAxisSpacing: 14,
                       mainAxisSpacing: 14,
-                      childAspectRatio: 0.82,
+                      childAspectRatio: 0.78,
                     ),
                     itemCount: _plants.length,
                     itemBuilder: (_, i) => _PlantCard(plant: _plants[i]),
@@ -159,6 +173,52 @@ class PlantsScreen extends StatelessWidget {
         ],
       ),
       actions: [const SizedBox(width: 4)],
+    );
+  }
+
+  Widget _buildGardenHeader() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _C.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _C.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: _C.accentDim,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.local_florist, color: _C.accent, size: 22),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Torre #1',
+                  style: TextStyle(
+                    color: _C.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Acompanhamento dos cultivos ativos',
+                  style: TextStyle(color: _C.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          _OutlinedChip(label: 'Aeroponia'),
+        ],
+      ),
     );
   }
 
@@ -317,15 +377,46 @@ class _PlantCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  plant.name,
-                  style: const TextStyle(
-                    color: _C.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        plant.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _C.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${(plant.progress * 100).round()}%',
+                      style: TextStyle(
+                        color: plant.statusColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 3),
+                Text(
+                  plant.type,
+                  style: const TextStyle(color: _C.textSecondary, fontSize: 11),
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: LinearProgressIndicator(
+                    value: plant.progress,
+                    minHeight: 5,
+                    backgroundColor: _C.surfaceEl,
+                    valueColor: AlwaysStoppedAnimation(plant.statusColor),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     const Icon(
