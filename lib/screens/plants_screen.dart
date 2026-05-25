@@ -35,6 +35,13 @@ class _Plant {
   });
 }
 
+const availablePlantNames = [
+  'Alface 01',
+  'Tomate 01',
+  'Rúcula 01',
+  'Espinafre 01',
+];
+
 const _plants = [
   _Plant(
     name: 'Alface 01',
