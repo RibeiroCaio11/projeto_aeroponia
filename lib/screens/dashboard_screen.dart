@@ -322,7 +322,10 @@ class _DashboardScreenState extends State<DashboardScreen>
           label: 'IA',
           onPressed: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const ChatbotScreen()),
+            MaterialPageRoute(builder: (_) => ChatbotScreen(
+              phAtual: _ph,
+              tempAtual: _tempAgua,
+              umidadeAtual: _nivelAgua,)),
           ),
         ),
         const SizedBox(width: 8),

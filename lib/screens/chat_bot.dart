@@ -1,8 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
-import 'package:hidro_app/screens/plants_screen.dart';
+import 'dart:convert';
+import 'package:package:http/http.dart' as http;
+import '../services/backend_service.dart';
+import 'plants_screen.dart';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 class _C {
@@ -26,10 +27,18 @@ class _Message {
   const _Message({required this.text, required this.isUser});
 }
 
-// ── Sugestões rápidas ──────────────────────────────────────────────────────────
 // ── Tela de Chatbot ────────────────────────────────────────────────────────────
 class ChatbotScreen extends StatefulWidget {
-  const ChatbotScreen({super.key});
+  final double? phAtual;
+  final double? tempAtual;
+  final double? umidadeAtual;
+
+  const ChatbotScreen({
+    super.key,
+    this.phAtual,
+    this.tempAtual,
+    this.umidadeAtual,
+  });
 
   @override
   State<ChatbotScreen> createState() => _ChatbotScreenState();
@@ -41,18 +50,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   String _selectedPlant = availablePlantNames.first;
   bool _isTyping = false;
 
-  // Histórico para manter contexto com a API
+  // Histórico para manter contexto
   final List<Map<String, String>> _history = [];
-
-  static const _apiKey = 'SUA_CHAVE_AQUI'; // 🔑 substitua pela sua chave
-  static const _apiUrl = 'https://api.anthropic.com/v1/messages';
-  static const _model = 'claude-sonnet-4-20250514';
-  static const _systemPrompt =
-      'Você é um especialista em hidroponia e aeroponia chamado HydroBot. '
-      'Responda em português do Brasil de forma objetiva e prática. '
-      'Ajude o usuário com dúvidas sobre pH, EC, temperatura, nutrientes, '
-      'pragas, doenças e manejo geral de sistemas hidropônicos e aeropônicos. '
-      'Seja direto e use listas quando for útil para clareza.';
+  
+  // Instância do serviço que faz a chamada HTTP
+  final _backend = BackendService();
 
   @override
   void initState() {
@@ -69,66 +71,51 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   @override
   void dispose() {
+    _backend.close(); // Fecha o client HTTP ao sair da tela
     _scrollCtrl.dispose();
     super.dispose();
   }
 
-  // ── Gerar orientação ─────────────────────────────────────────────────────────
+  // ── Gerar orientação usando o Microserviço ───────────────────────────────────
 
-  Future<void> _generatePlantGuidance() async {
+  Future<void> _solicitarOrientacaoMicroservico() async {
     if (_isTyping) return;
 
-    final prompt =
-        'Estou cultivando $_selectedPlant. Gere uma orientação prática para esse cultivo em sistema hidropônico/aeropônico. '
-        'Inclua faixas ideais de pH, TDS/EC quando útil, temperatura, umidade, sinais de alerta e cuidados imediatos.';
+  setState(() {
+      // Usando formatação para mostrar exatamente o que está na memória
+      final phTela = widget.phAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 7.5)';
+      final tempTela = widget.tempAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 28.5)';
+      final umiTela = widget.umidadeAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 45.0)';
 
-    setState(() {
-      _messages.add(_Message(text: _selectedPlant, isUser: true));
+      _messages.add(_Message(
+          text: 'Analisando **$_selectedPlant**...\n💧 pH: $phTela\n🌡️ Temp: $tempTela\n💦 Umid: $umiTela',
+          isUser: true));
       _isTyping = true;
     });
     _scrollToBottom();
 
-    final contextualText =
-        'Cultivo atual do usuário: $_selectedPlant\n\nSolicitação: $prompt';
-
-    // Adiciona ao histórico da conversa com o contexto do cultivo.
-    _history.add({'role': 'user', 'content': contextualText});
-
     try {
-      final response = await http
-          .post(
-            Uri.parse(_apiUrl),
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': _apiKey,
-              'anthropic-version': '2023-06-01',
-            },
-            body: jsonEncode({
-              'model': _model,
-              'max_tokens': 1024,
-              'system': _buildSystemPrompt(),
-              'messages': _history,
-            }),
-          )
-          .timeout(const Duration(seconds: 30));
+      // Chama o endpoint exato que foi configurado no BackendService
+      final reply = await _backend.analisarCultivoIA(
+        cultura: _selectedPlant,
+        ph: widget.phAtual ?? 7.5,
+        temperatura: widget.tempAtual ?? 28.5,
+        umidade: widget.umidadeAtual ?? 45.0,
+      );
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final reply = (data['content'] as List).first['text'] as String;
+      _history.add({'role': 'assistant', 'content': reply});
 
-        _history.add({'role': 'assistant', 'content': reply});
-
-        setState(() {
-          _isTyping = false;
-          _messages.add(_Message(text: reply, isUser: false));
-        });
-      } else {
-        _addError('Erro ${response.statusCode}. Tente novamente.');
-      }
+      setState(() {
+        _isTyping = false;
+        _messages.add(_Message(text: reply, isUser: false));
+      });
+} on BackendException catch (e) {
+      _addError('Erro da IA: ${e.message}');
     } catch (e) {
-      _addError('Sem conexão com a IA. Verifique sua internet.');
+      // ⚠️ Mude esta linha para vermos o erro real:
+      _addError('Erro detalhado: $e');
     }
 
     _scrollToBottom();
@@ -140,12 +127,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       _isTyping = false;
       _messages.add(_Message(text: '⚠️ $msg', isUser: false));
     });
-  }
-
-  String _buildSystemPrompt() {
-    return '$_systemPrompt '
-        'O usuário informou que está plantando/cultivando: $_selectedPlant. '
-        'Use esse contexto para adaptar valores ideais, cuidados, alertas e recomendações.';
   }
 
   void _scrollToBottom() {
@@ -414,8 +395,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     );
   }
 
-  // ── Sugestões rápidas ────────────────────────────────────────────────────────
-
   // ── Indicador de digitação ───────────────────────────────────────────────────
 
   Widget _buildTypingIndicator() {
@@ -462,7 +441,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         width: double.infinity,
         height: 48,
         child: ElevatedButton.icon(
-          onPressed: _isTyping ? null : _generatePlantGuidance,
+          onPressed: _isTyping ? null : _solicitarOrientacaoMicroservico, // 🎯 Aqui está a chamada correta!
           style: ElevatedButton.styleFrom(
             backgroundColor: _C.accent,
             disabledBackgroundColor: _C.surfaceEl,
@@ -486,9 +465,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }
 
   ThemeData _darkTheme() => ThemeData.dark().copyWith(
-    scaffoldBackgroundColor: _C.bg,
-    primaryColor: _C.accent,
-  );
+        scaffoldBackgroundColor: _C.bg,
+        primaryColor: _C.accent,
+      );
 }
 
 // ── Animação de digitação (três pontos) ────────────────────────────────────────

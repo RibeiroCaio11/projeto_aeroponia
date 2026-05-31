@@ -123,4 +123,38 @@ class BackendService {
   static String _normalizeBaseUrl(String url) {
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
+
+Future<String> analisarCultivoIA({
+    required String cultura,
+    required double ph,
+    required double temperatura,
+    required double umidade,
+  }) async {
+    // URL específica do seu microserviço de IA
+    final uri = Uri.parse('https://hidroponia-ia.azurewebsites.net/analisar-cultivo');
+
+    final response = await _client.post(
+      uri,
+      headers: {
+        'accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'cultura': cultura,
+        'ph': ph,
+        'temperatura': temperatura,
+        'umidade': umidade,
+      }),
+    ).timeout(const Duration(seconds: 30));
+
+    // Reaproveita o seu tratamento de erro nativo (lança BackendException se falhar)
+    final body = _decodeResponse(response);
+
+    // Retorna a lista de sugestões formatada, ou o diagnóstico/status como fallback
+    if (body['sugestoes_acao'] is List) {
+      return (body['sugestoes_acao'] as List).join('\n');
+    }
+    
+    return body['diagnostico_breve']?.toString() ?? 'Status do sistema: ${body['status_sistema']}';
+  }
 }
