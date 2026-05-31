@@ -214,9 +214,6 @@ class _DashboardScreenState extends State<DashboardScreen>
               _buildSectionHeader(),
               const SizedBox(height: 14),
 
-              _buildSensorSummary(),
-              const SizedBox(height: 18),
-
               // Faixa de alertas críticos
               if (_alertas.isNotEmpty) ...[
                 _buildAlertBanner(),
@@ -591,14 +588,18 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildGaugeGrid() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = (constraints.maxWidth / 260).floor().clamp(2, 4);
+        final compact = constraints.maxWidth < 720;
+        final crossAxisCount = compact
+            ? 2
+            : (constraints.maxWidth / 260).floor().clamp(2, 4);
+        final childAspectRatio = compact ? 1.08 : 1.7;
         return GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: crossAxisCount,
           crossAxisSpacing: 14,
           mainAxisSpacing: 14,
-          childAspectRatio: 1.7,
+          childAspectRatio: childAspectRatio,
           children: [
             GaugeCard(
               title: "pH",
@@ -754,25 +755,18 @@ class _DashboardScreenState extends State<DashboardScreen>
           LayoutBuilder(
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 620;
-              final fields = [
-                Expanded(
-                  child: _MotorCycleField(
-                    controller: _minutosLigadoCtrl,
-                    label: 'Ligado',
-                    icon: Icons.power_settings_new_rounded,
-                    enabled: !_enviandoComandoMotor,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _MotorCycleField(
-                    controller: _minutosDesligadoCtrl,
-                    label: 'Desligado',
-                    icon: Icons.power_off_rounded,
-                    enabled: !_enviandoComandoMotor,
-                  ),
-                ),
-              ];
+              final ligadoField = _MotorCycleField(
+                controller: _minutosLigadoCtrl,
+                label: 'Ligado',
+                icon: Icons.power_settings_new_rounded,
+                enabled: !_enviandoComandoMotor,
+              );
+              final desligadoField = _MotorCycleField(
+                controller: _minutosDesligadoCtrl,
+                label: 'Desligado',
+                icon: Icons.power_off_rounded,
+                enabled: !_enviandoComandoMotor,
+              );
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -780,12 +774,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                   compact
                       ? Column(
                           children: [
-                            fields[0],
+                            ligadoField,
                             const SizedBox(height: 10),
-                            fields[2],
+                            desligadoField,
                           ],
                         )
-                      : Row(children: fields),
+                      : Row(
+                          children: [
+                            Expanded(child: ligadoField),
+                            const SizedBox(width: 10),
+                            Expanded(child: desligadoField),
+                          ],
+                        ),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 10,
