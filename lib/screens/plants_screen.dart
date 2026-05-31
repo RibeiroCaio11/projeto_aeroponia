@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -7,26 +7,34 @@ import 'dart:convert';
 // ── Configuração da API ────────────────────────────────────────────────────────
 const _baseUrl = 'https://backend-tower-e3c3czeufgb8facg.eastus-01.azurewebsites.net';
 
+// ── Exportado para uso em outros arquivos (ex: chat_bot.dart) ─────────────────
+const availablePlantNames = [
+  'Alface 01',
+  'Tomate 01',
+  'Rúcula 01',
+  'Espinafre 01',
+];
+
 // ── Design tokens ──────────────────────────────────────────────────────────────
 class _C {
-  static const bg         = Color(0xFF0D1117);
-  static const surface    = Color(0xFF161B22);
-  static const surfaceEl  = Color(0xFF1C2129);
-  static const border     = Color(0xFF30363D);
-  static const accent     = Color(0xFF39D353);
-  static const accentDim  = Color(0xFF1A4731);
+  static const bg            = Color(0xFF0D1117);
+  static const surface       = Color(0xFF161B22);
+  static const surfaceEl     = Color(0xFF1C2129);
+  static const border        = Color(0xFF30363D);
+  static const accent        = Color(0xFF39D353);
+  static const accentDim     = Color(0xFF1A4731);
   static const textPrimary   = Color(0xFFE6EDF3);
   static const textSecondary = Color(0xFF8B949E);
-  static const red    = Color(0xFFFF6B6B);
-  static const yellow = Color(0xFFE3B341);
+  static const red           = Color(0xFFFF6B6B);
+  static const yellow        = Color(0xFFE3B341);
 }
 
 // ── Modelo de planta (vem do backend) ─────────────────────────────────────────
 class Plant {
-  final int    id;
-  final String nome;
-  final String tipo;
-  final String dataPlantio;
+  final int     id;
+  final String  nome;
+  final String  tipo;
+  final String  dataPlantio;
   final String? fotoUrl;
 
   const Plant({
@@ -48,7 +56,7 @@ class Plant {
 
 // ── Serviço de API ─────────────────────────────────────────────────────────────
 class PlantaService {
-  // Lista todas as plantas
+
   static Future<List<Plant>> listar() async {
     final response = await http.get(Uri.parse('$_baseUrl/plantas'));
     if (response.statusCode == 200) {
@@ -58,12 +66,12 @@ class PlantaService {
     throw Exception('Erro ao carregar plantas');
   }
 
-  // Cadastra nova planta com foto opcional
+  // Usa XFile para compatibilidade com Web e Mobile
   static Future<Plant> criar({
     required String nome,
     required String tipo,
     required String dataPlantio,
-    File? foto,
+    XFile? fotoXFile,
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -73,9 +81,14 @@ class PlantaService {
     request.fields['tipo']         = tipo;
     request.fields['data_plantio'] = dataPlantio;
 
-    if (foto != null) {
+    if (fotoXFile != null) {
+      final bytes = await fotoXFile.readAsBytes();
       request.files.add(
-        await http.MultipartFile.fromPath('foto', foto.path),
+        http.MultipartFile.fromBytes(
+          'foto',
+          bytes,
+          filename: fotoXFile.name,
+        ),
       );
     }
 
@@ -88,11 +101,8 @@ class PlantaService {
     throw Exception('Erro ao cadastrar planta');
   }
 
-  // Deleta planta por ID
   static Future<void> deletar(int id) async {
-    final response = await http.delete(
-      Uri.parse('$_baseUrl/plantas/$id'),
-    );
+    final response = await http.delete(Uri.parse('$_baseUrl/plantas/$id'));
     if (response.statusCode != 200) {
       throw Exception('Erro ao remover planta');
     }
@@ -109,8 +119,8 @@ class PlantsScreen extends StatefulWidget {
 
 class _PlantsScreenState extends State<PlantsScreen> {
   List<Plant> _plantas = [];
-  bool _loading        = true;
-  String? _erro;
+  bool        _loading = true;
+  String?     _erro;
 
   @override
   void initState() {
@@ -118,7 +128,6 @@ class _PlantsScreenState extends State<PlantsScreen> {
     _carregarPlantas();
   }
 
-  // ── Carrega plantas do backend ───────────────────────────────────────────────
   Future<void> _carregarPlantas() async {
     setState(() { _loading = true; _erro = null; });
     try {
@@ -129,7 +138,6 @@ class _PlantsScreenState extends State<PlantsScreen> {
     }
   }
 
-  // ── Abre modal de adicionar planta ───────────────────────────────────────────
   Future<void> _abrirModalAdicionar() async {
     final adicionada = await showModalBottomSheet<bool>(
       context: context,
@@ -143,21 +151,14 @@ class _PlantsScreenState extends State<PlantsScreen> {
     if (adicionada == true) _carregarPlantas();
   }
 
-  // ── Confirma e deleta planta ─────────────────────────────────────────────────
   Future<void> _deletarPlanta(Plant planta) async {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: _C.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Remover planta',
-          style: TextStyle(color: _C.textPrimary),
-        ),
-        content: Text(
-          'Deseja remover "${planta.nome}"?',
-          style: const TextStyle(color: _C.textSecondary),
-        ),
+        title: const Text('Remover planta', style: TextStyle(color: _C.textPrimary)),
+        content: Text('Deseja remover "${planta.nome}"?', style: const TextStyle(color: _C.textSecondary)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -176,23 +177,19 @@ class _PlantsScreenState extends State<PlantsScreen> {
         await PlantaService.deletar(planta.id);
         _carregarPlantas();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${planta.nome} removida!'),
-              backgroundColor: _C.surfaceEl,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${planta.nome} removida!'),
+            backgroundColor: _C.surfaceEl,
+            behavior: SnackBarBehavior.floating,
+          ));
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Erro ao remover planta'),
-              backgroundColor: _C.red,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Erro ao remover planta'),
+            backgroundColor: _C.red,
+            behavior: SnackBarBehavior.floating,
+          ));
         }
       }
     }
@@ -214,7 +211,6 @@ class _PlantsScreenState extends State<PlantsScreen> {
     );
   }
 
-  // ── AppBar ───────────────────────────────────────────────────────────────────
   PreferredSizeWidget _buildAppBar() => AppBar(
     backgroundColor: _C.surface,
     elevation: 0,
@@ -241,7 +237,6 @@ class _PlantsScreenState extends State<PlantsScreen> {
     ],
   );
 
-  // ── Body principal ───────────────────────────────────────────────────────────
   Widget _buildBody() => LayoutBuilder(
     builder: (context, constraints) {
       final cols = (constraints.maxWidth / 220).floor().clamp(2, 4);
@@ -292,7 +287,6 @@ class _PlantsScreenState extends State<PlantsScreen> {
     },
   );
 
-  // ── Tela de erro ─────────────────────────────────────────────────────────────
   Widget _buildErro() => Center(
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -310,17 +304,16 @@ class _PlantsScreenState extends State<PlantsScreen> {
     ),
   );
 
-  // ── Estado vazio ─────────────────────────────────────────────────────────────
   Widget _buildVazio() => Container(
     padding: const EdgeInsets.all(32),
     alignment: Alignment.center,
-    child: Column(
+    child: const Column(
       children: [
-        const Icon(Icons.eco_outlined, color: _C.textSecondary, size: 48),
-        const SizedBox(height: 12),
-        const Text('Nenhuma planta cadastrada', style: TextStyle(color: _C.textSecondary)),
-        const SizedBox(height: 8),
-        const Text('Toque em "Adicionar planta" para começar', style: TextStyle(color: _C.textSecondary, fontSize: 12)),
+        Icon(Icons.eco_outlined, color: _C.textSecondary, size: 48),
+        SizedBox(height: 12),
+        Text('Nenhuma planta cadastrada', style: TextStyle(color: _C.textSecondary)),
+        SizedBox(height: 8),
+        Text('Toque em "Adicionar planta" para começar', style: TextStyle(color: _C.textSecondary, fontSize: 12)),
       ],
     ),
   );
@@ -347,13 +340,16 @@ class _PlantsScreenState extends State<PlantsScreen> {
     ),
   );
 
-  Widget _buildSummaryRow() {
-    return Row(
-      children: [
-        Expanded(child: _SummaryCard(icon: Icons.check_circle_outline, value: '${_plantas.length}', label: 'Total', color: _C.accent)),
-      ],
-    );
-  }
+  Widget _buildSummaryRow() => Row(
+    children: [
+      Expanded(child: _SummaryCard(
+        icon: Icons.check_circle_outline,
+        value: '${_plantas.length}',
+        label: 'Total',
+        color: _C.accent,
+      )),
+    ],
+  );
 
   ThemeData _darkTheme() => ThemeData.dark().copyWith(
     scaffoldBackgroundColor: _C.bg,
@@ -368,23 +364,29 @@ class _AddPlantModal extends StatefulWidget {
 }
 
 class _AddPlantModalState extends State<_AddPlantModal> {
-  final _nomeCtrl        = TextEditingController();
-  final _tipoCtrl        = TextEditingController();
-  final _dataCtrl        = TextEditingController();
-  File?  _foto;
-  bool   _salvando       = false;
+  final _nomeCtrl = TextEditingController();
+  final _tipoCtrl = TextEditingController();
+  final _dataCtrl = TextEditingController();
+
+  XFile?  _fotoXFile;           // ← XFile funciona em Web e Mobile
+  Uint8List? _fotoBytes;        // ← bytes para preview na Web
+  bool    _salvando = false;
   String? _erro;
 
   final _tipos = ['Folhosa', 'Frutífera', 'Tempero', 'Raiz', 'Outro'];
 
-  // ── Seleciona foto da galeria ──────────────────────────────────────────────
   Future<void> _selecionarFoto() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (picked != null) setState(() => _foto = File(picked.path));
+    if (picked != null) {
+      final bytes = await picked.readAsBytes();
+      setState(() {
+        _fotoXFile = picked;
+        _fotoBytes = bytes;
+      });
+    }
   }
 
-  // ── Seleciona data ─────────────────────────────────────────────────────────
   Future<void> _selecionarData() async {
     final data = await showDatePicker(
       context: context,
@@ -403,21 +405,18 @@ class _AddPlantModalState extends State<_AddPlantModal> {
     }
   }
 
-  // ── Salva planta ───────────────────────────────────────────────────────────
   Future<void> _salvar() async {
     if (_nomeCtrl.text.isEmpty || _tipoCtrl.text.isEmpty || _dataCtrl.text.isEmpty) {
       setState(() => _erro = 'Preencha todos os campos obrigatórios');
       return;
     }
-
     setState(() { _salvando = true; _erro = null; });
-
     try {
       await PlantaService.criar(
         nome:        _nomeCtrl.text.trim(),
         tipo:        _tipoCtrl.text.trim(),
         dataPlantio: _dataCtrl.text,
-        foto:        _foto,
+        fotoXFile:   _fotoXFile,
       );
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
@@ -437,7 +436,6 @@ class _AddPlantModalState extends State<_AddPlantModal> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Handle
             Center(
               child: Container(
                 width: 40, height: 4,
@@ -445,11 +443,10 @@ class _AddPlantModalState extends State<_AddPlantModal> {
               ),
             ),
             const SizedBox(height: 20),
-
             const Text('Adicionar Planta', style: TextStyle(color: _C.textPrimary, fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 20),
 
-            // Foto
+            // ── Preview da foto ──────────────────────────────────────────────
             GestureDetector(
               onTap: _selecionarFoto,
               child: Container(
@@ -460,10 +457,10 @@ class _AddPlantModalState extends State<_AddPlantModal> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: _C.border),
                 ),
-                child: _foto != null
+                child: _fotoBytes != null
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        child: Image.file(_foto!, fit: BoxFit.cover),
+                        child: Image.memory(_fotoBytes!, fit: BoxFit.cover),
                       )
                     : const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -477,11 +474,9 @@ class _AddPlantModalState extends State<_AddPlantModal> {
             ),
             const SizedBox(height: 16),
 
-            // Nome
             _buildField(controller: _nomeCtrl, label: 'Nome da planta', hint: 'Ex: Alface 01'),
             const SizedBox(height: 12),
 
-            // Tipo (dropdown)
             DropdownButtonFormField<String>(
               decoration: _inputDecoration('Tipo'),
               dropdownColor: _C.surfaceEl,
@@ -492,7 +487,6 @@ class _AddPlantModalState extends State<_AddPlantModal> {
             ),
             const SizedBox(height: 12),
 
-            // Data de plantio
             GestureDetector(
               onTap: _selecionarData,
               child: AbsorbPointer(
@@ -501,13 +495,11 @@ class _AddPlantModalState extends State<_AddPlantModal> {
             ),
             const SizedBox(height: 16),
 
-            // Erro
             if (_erro != null) ...[
               Text(_erro!, style: const TextStyle(color: _C.red, fontSize: 12)),
               const SizedBox(height: 8),
             ],
 
-            // Botão salvar
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -557,7 +549,7 @@ class _AddPlantModalState extends State<_AddPlantModal> {
 
 // ── PlantCard ──────────────────────────────────────────────────────────────────
 class _PlantCard extends StatelessWidget {
-  final Plant plant;
+  final Plant        plant;
   final VoidCallback onDelete;
   const _PlantCard({required this.plant, required this.onDelete});
 
@@ -579,7 +571,6 @@ class _PlantCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Foto
                 fotoUrl != null
                     ? Image.network(fotoUrl, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
@@ -587,22 +578,15 @@ class _PlantCard extends StatelessWidget {
                           child: const Icon(Icons.eco, color: _C.accent, size: 40),
                         ),
                       )
-                    : Container(
-                        color: _C.surfaceEl,
-                        child: const Icon(Icons.eco, color: _C.accent, size: 40),
-                      ),
+                    : Container(color: _C.surfaceEl, child: const Icon(Icons.eco, color: _C.accent, size: 40)),
 
-                // Botão deletar
                 Positioned(
                   top: 8, right: 8,
                   child: GestureDetector(
                     onTap: onDelete,
                     child: Container(
                       padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: _C.bg.withOpacity(0.7),
-                        shape: BoxShape.circle,
-                      ),
+                      decoration: BoxDecoration(color: _C.bg.withOpacity(0.7), shape: BoxShape.circle),
                       child: const Icon(Icons.delete_outline, color: _C.red, size: 16),
                     ),
                   ),
@@ -611,7 +595,6 @@ class _PlantCard extends StatelessWidget {
             ),
           ),
 
-          // Info
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Column(
@@ -641,8 +624,8 @@ class _PlantCard extends StatelessWidget {
 // ── Widgets auxiliares ─────────────────────────────────────────────────────────
 class _SummaryCard extends StatelessWidget {
   final IconData icon;
-  final String value, label;
-  final Color color;
+  final String   value, label;
+  final Color    color;
   const _SummaryCard({required this.icon, required this.value, required this.label, required this.color});
 
   @override
