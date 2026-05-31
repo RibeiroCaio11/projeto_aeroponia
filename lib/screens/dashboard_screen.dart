@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/backend_models.dart';
 import '../services/backend_service.dart';
 import '../widgets/gauge_card.dart';
+import 'chat_bot.dart';
 import 'plants_screen.dart';
 
 const _intervalo = Duration(seconds: 3);
@@ -39,6 +40,8 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
   final _backend = BackendService();
+  final _minutosLigadoCtrl = TextEditingController(text: '15');
+  final _minutosDesligadoCtrl = TextEditingController(text: '45');
   Timer? _timer;
   late AnimationController _pulseController;
 
@@ -108,10 +111,32 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  Future<void> _iniciarCicloPadrao() async {
+  Future<void> _iniciarCicloPersonalizado() async {
+    final minutosLigado = int.tryParse(_minutosLigadoCtrl.text.trim());
+    final minutosDesligado = int.tryParse(_minutosDesligadoCtrl.text.trim());
+
+    if (minutosLigado == null ||
+        minutosDesligado == null ||
+        minutosLigado < 1 ||
+        minutosDesligado < 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Informe minutos ligados e desligados maiores que zero.',
+          ),
+          backgroundColor: _Colors.surface,
+        ),
+      );
+      return;
+    }
+
     await _executarComandoMotor(
-      () => _backend.iniciarCiclo(minutosLigado: 15, minutosDesligado: 45),
-      sucesso: 'Ciclo da bomba iniciado.',
+      () => _backend.iniciarCiclo(
+        minutosLigado: minutosLigado,
+        minutosDesligado: minutosDesligado,
+      ),
+      sucesso:
+          'Ciclo iniciado: $minutosLigado min ligado / $minutosDesligado min desligado.',
     );
   }
 
@@ -166,6 +191,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     _timer?.cancel();
     _pulseController.dispose();
     _backend.close();
+    _minutosLigadoCtrl.dispose();
+    _minutosDesligadoCtrl.dispose();
     super.dispose();
   }
 
@@ -293,6 +320,15 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ),
         const SizedBox(width: 12),
+        _AppBarButton(
+          icon: Icons.smart_toy_outlined,
+          label: 'IA',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ChatbotScreen()),
+          ),
+        ),
+        const SizedBox(width: 8),
         _AppBarButton(
           icon: Icons.eco_outlined,
           label: 'Plantas',
@@ -715,30 +751,69 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ],
           const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MotorButton(
-                icon: Icons.play_arrow_rounded,
-                label: 'Ciclo 15/45',
-                enabled: !_enviandoComandoMotor,
-                onPressed: _iniciarCicloPadrao,
-              ),
-              _MotorButton(
-                icon: Icons.stop_rounded,
-                label: 'Desligar',
-                enabled: !_enviandoComandoMotor,
-                isDanger: true,
-                onPressed: _desligarMotor,
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 620;
+              final fields = [
+                Expanded(
+                  child: _MotorCycleField(
+                    controller: _minutosLigadoCtrl,
+                    label: 'Ligado',
+                    icon: Icons.power_settings_new_rounded,
+                    enabled: !_enviandoComandoMotor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _MotorCycleField(
+                    controller: _minutosDesligadoCtrl,
+                    label: 'Desligado',
+                    icon: Icons.power_off_rounded,
+                    enabled: !_enviandoComandoMotor,
+                  ),
+                ),
+              ];
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  compact
+                      ? Column(
+                          children: [
+                            fields[0],
+                            const SizedBox(height: 10),
+                            fields[2],
+                          ],
+                        )
+                      : Row(children: fields),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _MotorButton(
+                        icon: Icons.play_arrow_rounded,
+                        label: 'Iniciar ciclo',
+                        enabled: !_enviandoComandoMotor,
+                        onPressed: _iniciarCicloPersonalizado,
+                      ),
+                      _MotorButton(
+                        icon: Icons.stop_rounded,
+                        label: 'Desligar',
+                        enabled: !_enviandoComandoMotor,
+                        isDanger: true,
+                        onPressed: _desligarMotor,
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
-
   // ── Barra de status inferior ───────────────────────────────────────────────
 
   Widget _buildStatusBar() {
@@ -1030,6 +1105,54 @@ class _MotorButton extends StatelessWidget {
       ),
       icon: Icon(icon, size: 17),
       label: Text(label, style: const TextStyle(fontSize: 12)),
+    );
+  }
+}
+
+class _MotorCycleField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final IconData icon;
+  final bool enabled;
+
+  const _MotorCycleField({
+    required this.controller,
+    required this.label,
+    required this.icon,
+    required this.enabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: TextInputType.number,
+      style: const TextStyle(color: _Colors.textPrimary, fontSize: 14),
+      cursorColor: _Colors.accent,
+      decoration: InputDecoration(
+        labelText: '$label (min)',
+        labelStyle: const TextStyle(color: _Colors.textSecondary, fontSize: 12),
+        prefixIcon: Icon(icon, color: _Colors.textSecondary, size: 18),
+        filled: true,
+        fillColor: _Colors.surfaceElevated,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _Colors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _Colors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _Colors.accent, width: 1.4),
+        ),
+      ),
     );
   }
 }
