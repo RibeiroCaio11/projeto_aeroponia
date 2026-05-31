@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import 'plants_screen.dart';
+import 'package:hidro_app/screens/plants_screen.dart';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 class _C {
