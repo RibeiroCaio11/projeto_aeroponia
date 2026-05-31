@@ -79,9 +79,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   Future<void> _solicitarOrientacaoMicroservico() async {
     if (_isTyping) return;
 
-    setState(() {
+  setState(() {
+      // Usando formatação para mostrar exatamente o que está na memória
+      final phTela = widget.phAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 7.5)';
+      final tempTela = widget.tempAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 28.5)';
+      final umiTela = widget.umidadeAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 45.0)';
+
       _messages.add(_Message(
-          text: 'Analisando $_selectedPlant com os dados da torre...',
+          text: 'Analisando **$_selectedPlant**...\n💧 pH: $phTela\n🌡️ Temp: $tempTela\n💦 Umid: $umiTela',
           isUser: true));
       _isTyping = true;
     });
