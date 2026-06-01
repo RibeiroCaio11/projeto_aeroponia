@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import '../services/backend_service.dart';
-import 'plants_screen.dart';
+import 'plants_screen.dart'; // Importa a classe Plant e PlantaService
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 class _C {
@@ -47,10 +45,13 @@ class ChatbotScreen extends StatefulWidget {
 class _ChatbotScreenState extends State<ChatbotScreen> {
   final List<_Message> _messages = [];
   final _scrollCtrl = ScrollController();
-  String _selectedPlant = availablePlantNames.first;
-  bool _isTyping = false;
+  
+  // Variáveis para as plantas reais da API
+  List<Plant> _plantasReais = [];
+  String? _selectedPlantNome; 
+  bool _carregandoPlantas = true;
 
-  // Histórico para manter contexto
+  bool _isTyping = false;
   final List<Map<String, String>> _history = [];
   
   // Instância do serviço que faz a chamada HTTP
@@ -67,11 +68,37 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         isUser: false,
       ),
     );
+    
+    // Busca as plantas da API assim que abre o chat
+    _buscarPlantas(); 
+  }
+
+  Future<void> _buscarPlantas() async {
+    try {
+      final lista = await PlantaService.listar();
+      if (mounted) {
+        setState(() {
+          _plantasReais = lista;
+          _carregandoPlantas = false;
+          // Seleciona a primeira planta da lista por padrão, se existir
+          if (_plantasReais.isNotEmpty) {
+            _selectedPlantNome = _plantasReais.first.nome;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _carregandoPlantas = false;
+          _selectedPlantNome = null; 
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
-    _backend.close(); // Fecha o client HTTP ao sair da tela
+    _backend.close();
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -80,24 +107,28 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Future<void> _solicitarOrientacaoMicroservico() async {
     if (_isTyping) return;
+    
+    // Trava de segurança: impede o envio se não houver planta selecionada
+    if (_selectedPlantNome == null) {
+      _addError('Selecione uma planta primeiro. Se não houver nenhuma, cadastre na tela de Plantas.');
+      return;
+    }
 
-  setState(() {
-      // Usando formatação para mostrar exatamente o que está na memória
-      final phTela = widget.phAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 7.5)';
-      final tempTela = widget.tempAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 28.5)';
-      final umiTela = widget.umidadeAtual?.toStringAsFixed(1) ?? 'NULO (Enviando 45.0)';
+    setState(() {
+      final phTela = widget.phAtual?.toStringAsFixed(1) ?? 'NULO';
+      final tempTela = widget.tempAtual?.toStringAsFixed(1) ?? 'NULO';
+      final umiTela = widget.umidadeAtual?.toStringAsFixed(1) ?? 'NULO';
 
       _messages.add(_Message(
-          text: 'Analisando **$_selectedPlant**...\n💧 pH: $phTela\n🌡️ Temp: $tempTela\n💦 Umid: $umiTela',
+          text: 'Analisando **$_selectedPlantNome**...\n💧 pH: $phTela\n🌡️ Temp: $tempTela\n💦 Umid: $umiTela',
           isUser: true));
       _isTyping = true;
     });
     _scrollToBottom();
 
     try {
-      // Chama o endpoint exato que foi configurado no BackendService
       final reply = await _backend.analisarCultivoIA(
-        cultura: _selectedPlant,
+        cultura: _selectedPlantNome!,
         ph: widget.phAtual ?? 7.5,
         temperatura: widget.tempAtual ?? 28.5,
         umidade: widget.umidadeAtual ?? 45.0,
@@ -111,11 +142,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         _isTyping = false;
         _messages.add(_Message(text: reply, isUser: false));
       });
-} on BackendException catch (e) {
+    } on BackendException catch (e) {
       _addError('Erro da IA: ${e.message}');
     } catch (e) {
-      // ⚠️ Mude esta linha para vermos o erro real:
-      _addError('Erro detalhado: $e');
+      _addError('Falha ao conectar com hidroponia-ia.azurewebsites.net.');
     }
 
     _scrollToBottom();
@@ -258,49 +288,42 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     return Container(
       color: _C.surface,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: DropdownButtonFormField<String>(
-        initialValue: _selectedPlant,
-        dropdownColor: _C.surfaceEl,
-        iconEnabledColor: _C.textSecondary,
-        style: const TextStyle(color: _C.textPrimary, fontSize: 14),
-        decoration: InputDecoration(
-          labelText: 'Planta do cultivo',
-          labelStyle: const TextStyle(color: _C.textSecondary, fontSize: 13),
-          prefixIcon: const Icon(
-            Icons.local_florist_outlined,
-            color: _C.textSecondary,
-            size: 18,
-          ),
-          filled: true,
-          fillColor: _C.surfaceEl,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 12,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: _C.border),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: _C.border),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: _C.accent, width: 1.4),
-          ),
-        ),
-        items: availablePlantNames
-            .map(
-              (plant) =>
-                  DropdownMenuItem<String>(value: plant, child: Text(plant)),
-            )
-            .toList(),
-        onChanged: (value) {
-          if (value == null) return;
-          setState(() => _selectedPlant = value);
-        },
-      ),
+      child: _carregandoPlantas
+          ? const Center(child: CircularProgressIndicator(color: _C.accent))
+          : _plantasReais.isEmpty
+              ? const Text(
+                  'Nenhuma planta cadastrada na torre.',
+                  style: TextStyle(color: Colors.redAccent, fontSize: 14),
+                )
+              : DropdownButtonFormField<String>(
+                  value: _selectedPlantNome,
+                  dropdownColor: _C.surfaceEl,
+                  iconEnabledColor: _C.textSecondary,
+                  style: const TextStyle(color: _C.textPrimary, fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: 'Planta em análise',
+                    labelStyle: const TextStyle(color: _C.textSecondary, fontSize: 13),
+                    prefixIcon: const Icon(
+                      Icons.local_florist_outlined,
+                      color: _C.textSecondary,
+                      size: 18,
+                    ),
+                    filled: true,
+                    fillColor: _C.surfaceEl,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: _C.border)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: _C.border)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: _C.accent, width: 1.4)),
+                  ),
+                  items: _plantasReais.map((plant) => DropdownMenuItem<String>(
+                            value: plant.nome,
+                            child: Text(plant.nome),
+                          )).toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _selectedPlantNome = value);
+                  },
+                ),
     );
   }
 
@@ -441,7 +464,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         width: double.infinity,
         height: 48,
         child: ElevatedButton.icon(
-          onPressed: _isTyping ? null : _solicitarOrientacaoMicroservico, // 🎯 Aqui está a chamada correta!
+          onPressed: _isTyping ? null : _solicitarOrientacaoMicroservico,
           style: ElevatedButton.styleFrom(
             backgroundColor: _C.accent,
             disabledBackgroundColor: _C.surfaceEl,
