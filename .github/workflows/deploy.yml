@@ -1,9 +1,19 @@
 name: Deploy Flutter Web to GitHub Pages
 
+# Publica no GitHub Pages. O workflow se adapta sozinho:
+#
+#   SEM a pasta loja/    -> painel na raiz            (comportamento atual)
+#   COM a pasta loja/    -> loja na raiz
+#                           painel em /painel/
+#
+# Assim da para commitar este arquivo antes de mover a loja para ca, sem
+# quebrar o deploy que ja funciona.
+
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -11,22 +21,79 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.x'
-          channel: 'stable'
+          channel: stable
+          cache: true
 
-      - name: Install dependencies
+      - name: A loja ja esta neste repo?
+        id: loja
+        run: |
+          if [ -f loja/pubspec.yaml ]; then
+            echo "existe=true" >> "$GITHUB_OUTPUT"
+            echo "base_painel=/projeto_aeroponia/painel/" >> "$GITHUB_OUTPUT"
+            echo "Loja encontrada: painel vai para /painel/"
+          else
+            echo "existe=false" >> "$GITHUB_OUTPUT"
+            echo "base_painel=/projeto_aeroponia/" >> "$GITHUB_OUTPUT"
+            echo "Sem loja: painel continua na raiz"
+          fi
+
+      # ── Painel (raiz do repo) ───────────────────────────────
+      - name: Dependencias do painel
         run: flutter pub get
 
-      - name: Build Flutter Web
+      - name: Build do painel
+        run: flutter build web --release --base-href "${{ steps.loja.outputs.base_painel }}"
+
+      - name: Posiciona o painel
+        run: |
+          if [ "${{ steps.loja.outputs.existe }}" = "true" ]; then
+            mkdir -p publicar/painel && cp -r build/web/. publicar/painel/
+          else
+            mkdir -p publicar && cp -r build/web/. publicar/
+          fi
+
+      # ── Loja (pasta loja/, quando existir) ──────────────────
+      - name: Dependencias da loja
+        if: steps.loja.outputs.existe == 'true'
+        working-directory: loja
+        run: flutter pub get
+
+      - name: Analise da loja
+        if: steps.loja.outputs.existe == 'true'
+        working-directory: loja
+        run: flutter analyze
+
+      - name: Testes da loja
+        if: steps.loja.outputs.existe == 'true'
+        working-directory: loja
+        run: flutter test
+
+      - name: Build da loja
+        if: steps.loja.outputs.existe == 'true'
+        working-directory: loja
         run: flutter build web --release --base-href "/projeto_aeroponia/"
 
-      - name: Deploy to GitHub Pages
+      - name: Coloca a loja na raiz
+        if: steps.loja.outputs.existe == 'true'
+        run: cp -r loja/build/web/. publicar/
+
+      # ── Ajustes do GitHub Pages ─────────────────────────────
+      # O Pages nao tem fallback de SPA: servir o index como 404.html faz
+      # os links diretos (/loja, /produto/modular) abrirem a pagina certa.
+      - name: Fallback de SPA
+        run: cp publicar/index.html publicar/404.html
+
+      # Sem isto o Jekyll ignora arquivos e pastas que comecam com _.
+      - name: Desliga o Jekyll
+        run: touch publicar/.nojekyll
+
+      - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build/web
+          publish_dir: ./publicar
