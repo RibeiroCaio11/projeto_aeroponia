@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/backend_models.dart';
 import '../services/backend_service.dart';
 import '../widgets/gauge_card.dart';
+import '../widgets/nivel_agua_card.dart';
 import 'chat_bot.dart';
 import 'plants_screen.dart';
 
@@ -658,23 +659,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                 GaugeRange(startValue: 28, endValue: 35, color: _Colors.red),
               ],
             ),
-            GaugeCard(
-              title: "Umidade",
-              value: _nivelAgua,
-              unit: "%",
-              min: 0,
-              max: 100,
-              icon: Icons.opacity_rounded,
-              accentColor: _Colors.blue,
-              ranges: [
-                GaugeRange(startValue: 0, endValue: 35, color: _Colors.red),
-                GaugeRange(startValue: 35, endValue: 50, color: _Colors.orange),
-                GaugeRange(
-                  startValue: 50,
-                  endValue: 100,
-                  color: _Colors.accent,
-                ),
-              ],
+            // Nivel de tanque nao e grandeza que oscila em torno de um
+            // ideal como pH ou temperatura: o que importa e quanto ainda
+            // resta. A ampola mostra isso de imediato; o medidor circular
+            // obrigava a interpretar um ponteiro.
+            NivelAguaCard(
+              valor: _nivelAgua,
+              minimoAlerta: 35,
+              corFundo: _Colors.surface,
+              corBorda: _Colors.border,
+              corTexto: _Colors.textPrimary,
+              corTextoSecundario: _Colors.textSecondary,
             ),
           ],
         );
