@@ -5,7 +5,10 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 
 // ── Configuração da API ────────────────────────────────────────────────────────
-const _baseUrl = 'https://backend-tower-e3c3czeufgb8facg.eastus-01.azurewebsites.net';
+// Mesma URL de BackendService.defaultBaseUrl (sem o /dados). Se uma
+// mudar, a outra tem de mudar junto — ja esquecemos uma vez, quando a
+// conta antiga da Azure caiu e so o servico foi corrigido.
+const _baseUrl = 'https://aerotower-backend-bfb7frgsbccuanhf.eastus-01.azurewebsites.net';
 
 // ── Exportado para uso em outros arquivos (ex: chat_bot.dart) ─────────────────
 const availablePlantNames = [

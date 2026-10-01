@@ -16,7 +16,7 @@ class BackendException implements Exception {
 
 class BackendService {
   static const defaultBaseUrl =
-      'https://backend-tower-e3c3czeufgb8facg.eastus-01.azurewebsites.net/dados';
+      'https://aerotower-backend-bfb7frgsbccuanhf.eastus-01.azurewebsites.net/dados';
 
   static const _configuredBaseUrl = String.fromEnvironment(
     'BACKEND_BASE_URL',
